@@ -83,9 +83,16 @@ document.addEventListener('DOMContentLoaded', () => {
       card.className = 'participant-card';
       card.dataset.id = p.id;
 
+      // 1) Cas “verrou local” : ce navigateur est déjà associé à une autre personne
       const lockedOther = lockedParticipantId && p.id !== lockedParticipantId;
 
-      if (lockedOther) {
+      // 2) Cas “déjà tiré globalement” : la personne a déjà tiré sur un autre appareil
+      const drawnElsewhere =
+        p.hasDrawn === true && (!lockedParticipantId || p.id !== lockedParticipantId);
+
+      const shouldDisable = lockedOther || drawnElsewhere;
+
+      if (shouldDisable) {
         card.classList.add('participant-card--locked-other');
         card.disabled = true;
       }
@@ -112,16 +119,23 @@ document.addEventListener('DOMContentLoaded', () => {
       const tagEl = document.createElement('div');
       tagEl.className = 'participant-card__tag';
       if (p.hasDrawn) {
-        tagEl.textContent = 'Déjà tiré (sur ce tirage)';
+        tagEl.textContent = 'Déjà tiré';
       } else {
         tagEl.textContent = 'Disponible';
       }
       card.appendChild(tagEl);
 
       card.addEventListener('click', () => {
-        // Si ce navigateur est déjà verrouillé sur un autre participant,
-        // on refuse tout changement de nom.
-        if (lockedParticipantId && p.id !== lockedParticipantId) {
+        // Normalement déjà géré par disabled, mais on garde une sécurité
+        if (drawnElsewhere) {
+          alert(
+            'Cette personne a déjà fait son tirage sur un autre appareil.\n' +
+              'Choisis ton propre nom pour participer.'
+          );
+          return;
+        }
+
+        if (lockedOther) {
           alert(
             "Cet appareil est déjà associé à un autre participant pour ce tirage.\n" +
               'Tu peux seulement revoir le tirage de cette personne.'

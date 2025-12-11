@@ -10,20 +10,20 @@
 
     .participants-grid {
       display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
-      gap: 10px;
+      grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+      gap: 12px;
       margin-top: 10px;
     }
 
     .participant-card {
       border: 1px solid #e5e7eb;
       border-radius: 16px;
-      padding: 10px 8px;
+      padding: 12px 8px;
       background: #f9fafb;
       display: flex;
       flex-direction: column;
       align-items: center;
-      gap: 6px;
+      gap: 8px;
       cursor: pointer;
       transition: transform 0.08s ease, box-shadow 0.08s ease, border-color 0.08s ease,
         opacity 0.08s ease;
@@ -36,8 +36,8 @@
     }
 
     .participant-card__photo {
-      width: 46px;
-      height: 46px;
+      width: 72px;
+      height: 72px;
       border-radius: 999px;
       object-fit: cover;
       border: 1px solid #e5e7eb;
@@ -45,20 +45,20 @@
     }
 
     .participant-card__initials {
-      width: 46px;
-      height: 46px;
+      width: 72px;
+      height: 72px;
       border-radius: 999px;
       display: flex;
       align-items: center;
       justify-content: center;
       background: #e5e7eb;
       font-weight: 600;
-      font-size: 0.9rem;
+      font-size: 1rem;
       color: #4b5563;
     }
 
     .participant-card__name {
-      font-size: 0.9rem;
+      font-size: 0.95rem;
       font-weight: 600;
       color: #111827;
       text-align: center;
@@ -85,14 +85,14 @@
     /* Photo du destinataire dans la carte de résultat */
 
     .receiver-photo {
-      width: 72px;
-      height: 72px;
+      width: 96px;
+      height: 96px;
       border-radius: 999px;
       object-fit: cover;
       border: 2px solid #fecaca;
       background: #fee2e2;
       display: block;
-      margin: 6px auto 6px;
+      margin: 8px auto 8px;
     }
   </style>
 </head>
@@ -120,7 +120,8 @@
         </div>
         <div class="small-text">
           Dès qu’une personne a choisi sa carte sur cet appareil, seule cette carte sera
-          sélectionnable à nouveau (pour revoir son tirage).
+          sélectionnable à nouveau (pour revoir son tirage). Sur les autres appareils, cette
+          personne apparaîtra comme déjà tirée.
         </div>
       </div>
 
