@@ -3,10 +3,32 @@ const path = require('path');
 const fs = require('fs');
 const cors = require('cors');
 const multer = require('multer');
+const { Pool } = require('pg');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
-const DATA_FILE = path.join(__dirname, 'data', 'db.json');
+
+// ---------- Postgres ----------
+
+// Exemple de config : DATABASE_URL=postgres://user:pass@host:port/dbname
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  ssl:
+    process.env.DATABASE_SSL === 'false'
+      ? false
+      : {
+          rejectUnauthorized: false
+        }
+});
+
+// Petit helper pratique
+async function query(text, params) {
+  const res = await pool.query(text, params);
+  return res;
+}
+
+// ---------- Uploads ----------
+
 const UPLOAD_DIR = path.join(__dirname, 'public', 'uploads');
 
 // Ensure upload dir exists
@@ -35,27 +57,7 @@ app.use(cors());
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 
-// ---------- Helpers: DB ----------
-
-function ensureDataFile() {
-  if (!fs.existsSync(DATA_FILE)) {
-    const dir = path.dirname(DATA_FILE);
-    if (!fs.existsSync(dir)) {
-      fs.mkdirSync(dir, { recursive: true });
-    }
-    fs.writeFileSync(DATA_FILE, JSON.stringify({ draws: {} }, null, 2), 'utf-8');
-  }
-}
-
-function loadDb() {
-  ensureDataFile();
-  const raw = fs.readFileSync(DATA_FILE, 'utf-8');
-  return JSON.parse(raw || '{"draws": {}}');
-}
-
-function saveDb(db) {
-  fs.writeFileSync(DATA_FILE, JSON.stringify(db, null, 2), 'utf-8');
-}
+// ---------- Helpers: IDs & Codes ----------
 
 function randomId(prefix = 'd') {
   return (
@@ -73,14 +75,6 @@ function randomCode(length = 16) {
     out += chars.charAt(Math.floor(Math.random() * chars.length));
   }
   return out;
-}
-
-function findDrawByAdminCode(db, adminCode) {
-  return Object.values(db.draws).find((d) => d.adminCode === adminCode) || null;
-}
-
-function findDrawByPublicCode(db, publicCode) {
-  return Object.values(db.draws).find((d) => d.publicCode === publicCode) || null;
 }
 
 // ---------- Derangement ----------
@@ -122,8 +116,14 @@ function generateDerangement(participantIds) {
 
 // ---------- API routes ----------
 
-app.get('/api/health', (req, res) => {
-  res.json({ status: 'ok', timestamp: new Date().toISOString() });
+app.get('/api/health', async (req, res) => {
+  try {
+    await query('SELECT 1');
+    res.json({ status: 'ok', db: 'ok', timestamp: new Date().toISOString() });
+  } catch (err) {
+    console.error('Healthcheck DB error', err);
+    res.status(500).json({ status: 'error', db: 'error', error: err.message });
+  }
 });
 
 // Upload d'une photo (admin)
@@ -131,80 +131,85 @@ app.post('/api/upload-photo', upload.single('photo'), (req, res) => {
   if (!req.file) {
     return res.status(400).json({ error: 'Aucun fichier reçu.' });
   }
-  // L'URL sera servie statiquement depuis /public
   const url = `/uploads/${req.file.filename}`;
   res.json({ url });
 });
 
 // Créer un nouveau tirage
-app.post('/api/draws', (req, res) => {
+app.post('/api/draws', async (req, res) => {
   const { title, budget } = req.body || {};
   if (!title || typeof title !== 'string' || !title.trim()) {
     return res.status(400).json({ error: 'Le titre du tirage est obligatoire.' });
   }
 
-  const db = loadDb();
   const id = randomId('draw');
-  let adminCode = randomCode(20);
-  let publicCode = randomCode(20);
+  const adminCode = randomCode(20);
+  const publicCode = randomCode(20);
+  const now = new Date().toISOString();
 
-  const existingCodes = new Set();
-  Object.values(db.draws).forEach((d) => {
-    existingCodes.add(d.adminCode);
-    existingCodes.add(d.publicCode);
-  });
-  while (existingCodes.has(adminCode)) {
-    adminCode = randomCode(20);
+  try {
+    await query(
+      `
+      INSERT INTO draws (id, title, budget, admin_code, public_code, status, created_at, updated_at)
+      VALUES ($1, $2, $3, $4, $5, 'draft', $6, $6)
+    `,
+      [id, title.trim(), budget != null && budget !== '' ? Number(budget) : null, adminCode, publicCode, now]
+    );
+
+    res.json({
+      id,
+      title: title.trim(),
+      budget: budget != null && budget !== '' ? Number(budget) : null,
+      adminCode,
+      publicCode
+    });
+  } catch (err) {
+    console.error('Error creating draw', err);
+    res.status(500).json({ error: 'Erreur lors de la création du tirage.' });
   }
-  while (existingCodes.has(publicCode)) {
-    publicCode = randomCode(20);
-  }
-
-  const draw = {
-    id,
-    title: title.trim(),
-    budget: budget != null && budget !== '' ? Number(budget) : null,
-    adminCode,
-    publicCode,
-    status: 'draft', // draft | ready | closed
-    participants: [],
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString()
-  };
-
-  db.draws[id] = draw;
-  saveDb(db);
-
-  res.json({
-    id: draw.id,
-    title: draw.title,
-    budget: draw.budget,
-    adminCode: draw.adminCode,
-    publicCode: draw.publicCode
-  });
 });
 
 // Récupérer un tirage via adminCode (détails complets)
-app.get('/api/draws/by-admin/:adminCode', (req, res) => {
+app.get('/api/draws/by-admin/:adminCode', async (req, res) => {
   const { adminCode } = req.params;
-  const db = loadDb();
-  const draw = findDrawByAdminCode(db, adminCode);
-  if (!draw) {
-    return res.status(404).json({ error: 'Tirage introuvable.' });
+  try {
+    const drawRes = await query('SELECT * FROM draws WHERE admin_code = $1', [adminCode]);
+    if (drawRes.rows.length === 0) {
+      return res.status(404).json({ error: 'Tirage introuvable.' });
+    }
+    const draw = drawRes.rows[0];
+
+    const participantsRes = await query(
+      'SELECT * FROM participants WHERE draw_id = $1 ORDER BY created_at ASC',
+      [draw.id]
+    );
+    const participants = participantsRes.rows;
+
+    res.json({
+      id: draw.id,
+      title: draw.title,
+      budget: draw.budget,
+      adminCode: draw.admin_code,
+      publicCode: draw.public_code,
+      status: draw.status,
+      participants: participants.map((p) => ({
+        id: p.id,
+        name: p.name,
+        photoUrl: p.photo_url,
+        assignedParticipantId: p.assigned_participant_id,
+        hasDrawn: p.has_drawn,
+        createdAt: p.created_at,
+        updatedAt: p.updated_at
+      }))
+    });
+  } catch (err) {
+    console.error('Error get draw by admin', err);
+    res.status(500).json({ error: 'Erreur lors de la récupération du tirage.' });
   }
-  res.json({
-    id: draw.id,
-    title: draw.title,
-    budget: draw.budget,
-    adminCode: draw.adminCode,
-    publicCode: draw.publicCode,
-    status: draw.status,
-    participants: draw.participants
-  });
 });
 
 // Ajouter / remplacer les participants via adminCode
-app.post('/api/draws/:adminCode/participants', (req, res) => {
+app.post('/api/draws/:adminCode/participants', async (req, res) => {
   const { adminCode } = req.params;
   const { participants } = req.body || {};
 
@@ -213,15 +218,6 @@ app.post('/api/draws/:adminCode/participants', (req, res) => {
       error: 'Merci de fournir au moins 2 participants.'
     });
   }
-
-  const db = loadDb();
-  const draw = findDrawByAdminCode(db, adminCode);
-  if (!draw) {
-    return res.status(404).json({ error: 'Tirage introuvable.' });
-  }
-
-  // On repasse le tirage en "draft" si les participants sont modifiés
-  draw.status = 'draft';
 
   const cleaned = participants
     .map((p) => ({
@@ -236,132 +232,241 @@ app.post('/api/draws/:adminCode/participants', (req, res) => {
     });
   }
 
-  draw.participants = cleaned.map((p) => ({
-    id: randomId('p'),
-    name: p.name,
-    photoUrl: p.photoUrl || null,
-    assignedParticipantId: null,
-    hasDrawn: false,
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString()
-  }));
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
 
-  draw.updatedAt = new Date().toISOString();
-  db.draws[draw.id] = draw;
-  saveDb(db);
+    const drawRes = await client.query('SELECT * FROM draws WHERE admin_code = $1 FOR UPDATE', [
+      adminCode
+    ]);
+    if (drawRes.rows.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'Tirage introuvable.' });
+    }
+    const draw = drawRes.rows[0];
 
-  res.json({
-    id: draw.id,
-    title: draw.title,
-    budget: draw.budget,
-    status: draw.status,
-    participants: draw.participants
-  });
+    // Supprimer les participants existants
+    await client.query('DELETE FROM participants WHERE draw_id = $1', [draw.id]);
+
+    const now = new Date().toISOString();
+
+    // Insérer les nouveaux participants
+    const inserted = [];
+    for (const p of cleaned) {
+      const pid = randomId('p');
+      await client.query(
+        `
+        INSERT INTO participants (id, draw_id, name, photo_url, has_drawn, created_at, updated_at)
+        VALUES ($1, $2, $3, $4, FALSE, $5, $5)
+      `,
+        [pid, draw.id, p.name, p.photoUrl || null, now]
+      );
+      inserted.push({
+        id: pid,
+        name: p.name,
+        photoUrl: p.photoUrl || null,
+        assignedParticipantId: null,
+        hasDrawn: false,
+        createdAt: now,
+        updatedAt: now
+      });
+    }
+
+    // Repasse le tirage en draft
+    await client.query(
+      'UPDATE draws SET status = $1, updated_at = $2 WHERE id = $3',
+      ['draft', now, draw.id]
+    );
+
+    await client.query('COMMIT');
+
+    res.json({
+      id: draw.id,
+      title: draw.title,
+      budget: draw.budget,
+      status: 'draft',
+      participants: inserted
+    });
+  } catch (err) {
+    await client.query('ROLLBACK');
+    console.error('Error set participants', err);
+    res.status(500).json({ error: "Erreur lors de l'enregistrement des participants." });
+  } finally {
+    client.release();
+  }
 });
 
 // Lancer le tirage (générer le dérangement)
-app.post('/api/draws/:adminCode/start', (req, res) => {
+app.post('/api/draws/:adminCode/start', async (req, res) => {
   const { adminCode } = req.params;
-  const db = loadDb();
-  const draw = findDrawByAdminCode(db, adminCode);
-  if (!draw) {
-    return res.status(404).json({ error: 'Tirage introuvable.' });
-  }
+  const client = await pool.connect();
 
-  if (!draw.participants || draw.participants.length < 2) {
-    return res.status(400).json({
-      error: 'Il faut au moins 2 participants pour lancer le tirage.'
-    });
-  }
-
-  const participantIds = draw.participants.map((p) => p.id);
   try {
-    const derangementMap = generateDerangement(participantIds);
-    draw.participants = draw.participants.map((p) => ({
-      ...p,
-      assignedParticipantId: derangementMap[p.id] || null,
-      hasDrawn: false,
-      updatedAt: new Date().toISOString()
+    await client.query('BEGIN');
+
+    const drawRes = await client.query('SELECT * FROM draws WHERE admin_code = $1 FOR UPDATE', [
+      adminCode
+    ]);
+    if (drawRes.rows.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'Tirage introuvable.' });
+    }
+    const draw = drawRes.rows[0];
+
+    const participantsRes = await client.query(
+      'SELECT id FROM participants WHERE draw_id = $1 ORDER BY created_at ASC',
+      [draw.id]
+    );
+    const ids = participantsRes.rows.map((r) => r.id);
+
+    if (ids.length < 2) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({
+        error: 'Il faut au moins 2 participants pour lancer le tirage.'
+      });
+    }
+
+    const derangementMap = generateDerangement(ids);
+    const now = new Date().toISOString();
+
+    // Appliquer les attributions
+    for (const pid of ids) {
+      const assignedId = derangementMap[pid] || null;
+      await client.query(
+        `
+        UPDATE participants
+        SET assigned_participant_id = $1,
+            has_drawn = FALSE,
+            updated_at = $2
+        WHERE id = $3
+      `,
+        [assignedId, now, pid]
+      );
+    }
+
+    await client.query(
+      'UPDATE draws SET status = $1, updated_at = $2 WHERE id = $3',
+      ['ready', now, draw.id]
+    );
+
+    await client.query('COMMIT');
+
+    res.json({
+      id: draw.id,
+      title: draw.title,
+      budget: draw.budget,
+      status: 'ready',
+      publicCode: draw.public_code
+    });
+  } catch (err) {
+    await client.query('ROLLBACK');
+    console.error('Error start draw', err);
+    res.status(500).json({ error: err.message || 'Erreur lors du tirage.' });
+  } finally {
+    client.release();
+  }
+});
+
+// Réinitialiser le tirage (garder les participants mais enlever les attributions)
+app.post('/api/draws/:adminCode/reset', async (req, res) => {
+  const { adminCode } = req.params;
+  const client = await pool.connect();
+
+  try {
+    await client.query('BEGIN');
+
+    const drawRes = await client.query('SELECT * FROM draws WHERE admin_code = $1 FOR UPDATE', [
+      adminCode
+    ]);
+    if (drawRes.rows.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'Tirage introuvable.' });
+    }
+    const draw = drawRes.rows[0];
+
+    const participantsCountRes = await client.query(
+      'SELECT COUNT(*) FROM participants WHERE draw_id = $1',
+      [draw.id]
+    );
+    const count = Number(participantsCountRes.rows[0].count || 0);
+    if (count < 2) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({
+        error: 'Il faut au moins 2 participants pour réinitialiser le tirage.'
+      });
+    }
+
+    const now = new Date().toISOString();
+
+    await client.query(
+      `
+      UPDATE participants
+      SET assigned_participant_id = NULL,
+          has_drawn = FALSE,
+          updated_at = $1
+      WHERE draw_id = $2
+    `,
+      [now, draw.id]
+    );
+
+    await client.query(
+      'UPDATE draws SET status = $1, updated_at = $2 WHERE id = $3',
+      ['draft', now, draw.id]
+    );
+
+    await client.query('COMMIT');
+
+    res.json({
+      id: draw.id,
+      title: draw.title,
+      budget: draw.budget,
+      status: 'draft'
+    });
+  } catch (err) {
+    await client.query('ROLLBACK');
+    console.error('Error reset draw', err);
+    res.status(500).json({ error: 'Erreur lors de la réinitialisation du tirage.' });
+  } finally {
+    client.release();
+  }
+});
+
+// Récupérer le tirage pour les participants via publicCode (données limitées)
+app.get('/api/draws/by-public/:publicCode', async (req, res) => {
+  const { publicCode } = req.params;
+  try {
+    const drawRes = await query('SELECT * FROM draws WHERE public_code = $1', [publicCode]);
+    if (drawRes.rows.length === 0) {
+      return res.status(404).json({ error: 'Tirage introuvable.' });
+    }
+    const draw = drawRes.rows[0];
+
+    const participantsRes = await query(
+      'SELECT * FROM participants WHERE draw_id = $1 ORDER BY created_at ASC',
+      [draw.id]
+    );
+    const participants = participantsRes.rows.map((p) => ({
+      id: p.id,
+      name: p.name,
+      photoUrl: p.photo_url,
+      hasDrawn: p.has_drawn
     }));
-    draw.status = 'ready';
-    draw.updatedAt = new Date().toISOString();
-    db.draws[draw.id] = draw;
-    saveDb(db);
 
     res.json({
       id: draw.id,
       title: draw.title,
       budget: draw.budget,
       status: draw.status,
-      publicCode: draw.publicCode
+      participants
     });
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: err.message || 'Erreur lors du tirage.' });
+    console.error('Error get draw by public', err);
+    res.status(500).json({ error: 'Erreur lors du chargement du tirage.' });
   }
-});
-
-// Réinitialiser le tirage (garder les participants mais enlever les attributions)
-app.post('/api/draws/:adminCode/reset', (req, res) => {
-  const { adminCode } = req.params;
-  const db = loadDb();
-  const draw = findDrawByAdminCode(db, adminCode);
-  if (!draw) {
-    return res.status(404).json({ error: 'Tirage introuvable.' });
-  }
-
-  if (!draw.participants || draw.participants.length < 2) {
-    return res.status(400).json({
-      error: 'Il faut au moins 2 participants pour réinitialiser le tirage.'
-    });
-  }
-
-  draw.participants = draw.participants.map((p) => ({
-    ...p,
-    assignedParticipantId: null,
-    hasDrawn: false,
-    updatedAt: new Date().toISOString()
-  }));
-  draw.status = 'draft';
-  draw.updatedAt = new Date().toISOString();
-  db.draws[draw.id] = draw;
-  saveDb(db);
-
-  res.json({
-    id: draw.id,
-    title: draw.title,
-    budget: draw.budget,
-    status: draw.status
-  });
-});
-
-// Récupérer le tirage pour les participants via publicCode (données limitées)
-app.get('/api/draws/by-public/:publicCode', (req, res) => {
-  const { publicCode } = req.params;
-  const db = loadDb();
-  const draw = findDrawByPublicCode(db, publicCode);
-  if (!draw) {
-    return res.status(404).json({ error: 'Tirage introuvable.' });
-  }
-
-  const participantsForClient = draw.participants.map((p) => ({
-    id: p.id,
-    name: p.name,
-    photoUrl: p.photoUrl,
-    hasDrawn: p.hasDrawn
-  }));
-
-  res.json({
-    id: draw.id,
-    title: draw.title,
-    budget: draw.budget,
-    status: draw.status,
-    participants: participantsForClient
-  });
 });
 
 // Faire / revoir le tirage pour un participant via publicCode
-app.post('/api/draws/:publicCode/draw', (req, res) => {
+app.post('/api/draws/:publicCode/draw', async (req, res) => {
   const { publicCode } = req.params;
   const { participantId } = req.body || {};
 
@@ -369,49 +474,77 @@ app.post('/api/draws/:publicCode/draw', (req, res) => {
     return res.status(400).json({ error: 'participantId est obligatoire.' });
   }
 
-  const db = loadDb();
-  const draw = findDrawByPublicCode(db, publicCode);
-  if (!draw) {
-    return res.status(404).json({ error: 'Tirage introuvable.' });
-  }
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
 
-  if (draw.status !== 'ready') {
-    return res.status(400).json({ error: 'Le tirage n’est pas encore prêt.' });
-  }
-
-  const participant = draw.participants.find((p) => p.id === participantId);
-  if (!participant) {
-    return res.status(404).json({ error: 'Participant introuvable.' });
-  }
-
-  const receiver = draw.participants.find((p) => p.id === participant.assignedParticipantId);
-  if (!receiver) {
-    return res.status(500).json({ error: 'Aucune personne assignée à ce participant.' });
-  }
-
-  const alreadyDrawn = participant.hasDrawn;
-
-  if (!alreadyDrawn) {
-    participant.hasDrawn = true;
-    participant.updatedAt = new Date().toISOString();
-    draw.updatedAt = new Date().toISOString();
-    db.draws[draw.id] = draw;
-    saveDb(db);
-  }
-
-  res.json({
-    alreadyDrawn,
-    participant: {
-      id: participant.id,
-      name: participant.name,
-      photoUrl: participant.photoUrl
-    },
-    receiver: {
-      id: receiver.id,
-      name: receiver.name,
-      photoUrl: receiver.photoUrl
+    const drawRes = await client.query('SELECT * FROM draws WHERE public_code = $1 FOR UPDATE', [
+      publicCode
+    ]);
+    if (drawRes.rows.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'Tirage introuvable.' });
     }
-  });
+    const draw = drawRes.rows[0];
+
+    if (draw.status !== 'ready') {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: 'Le tirage n’est pas encore prêt.' });
+    }
+
+    const participantRes = await client.query(
+      'SELECT * FROM participants WHERE id = $1 AND draw_id = $2 FOR UPDATE',
+      [participantId, draw.id]
+    );
+    if (participantRes.rows.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'Participant introuvable.' });
+    }
+    const participant = participantRes.rows[0];
+
+    const receiverRes = await client.query(
+      'SELECT * FROM participants WHERE id = $1',
+      [participant.assigned_participant_id]
+    );
+    if (receiverRes.rows.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(500).json({ error: 'Aucune personne assignée à ce participant.' });
+    }
+    const receiver = receiverRes.rows[0];
+
+    const alreadyDrawn = participant.has_drawn;
+
+    if (!alreadyDrawn) {
+      const now = new Date().toISOString();
+      await client.query(
+        'UPDATE participants SET has_drawn = TRUE, updated_at = $1 WHERE id = $2',
+        [now, participant.id]
+      );
+      await client.query('UPDATE draws SET updated_at = $1 WHERE id = $2', [now, draw.id]);
+    }
+
+    await client.query('COMMIT');
+
+    res.json({
+      alreadyDrawn,
+      participant: {
+        id: participant.id,
+        name: participant.name,
+        photoUrl: participant.photo_url
+      },
+      receiver: {
+        id: receiver.id,
+        name: receiver.name,
+        photoUrl: receiver.photo_url
+      }
+    });
+  } catch (err) {
+    await client.query('ROLLBACK');
+    console.error('Error participant draw', err);
+    res.status(500).json({ error: 'Erreur lors du tirage.' });
+  } finally {
+    client.release();
+  }
 });
 
 // Fallback: renvoyer index.html
