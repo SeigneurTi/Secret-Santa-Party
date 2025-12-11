@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <title>Père Noël Secret - Tirage</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <link rel="stylesheet" href="styles.css" />
+  <style>
+    /* Styles spécifiques à la page de tirage (cartes participants) */
+
+    .participants-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+      gap: 10px;
+      margin-top: 10px;
+    }
+
+    .participant-card {
+      border: 1px solid #e5e7eb;
+      border-radius: 16px;
+      padding: 10px 8px;
+      background: #f9fafb;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 6px;
+      cursor: pointer;
+      transition: transform 0.08s ease, box-shadow 0.08s ease, border-color 0.08s ease,
+        opacity 0.08s ease;
+      width: 100%;
+      box-sizing: border-box;
+    }
+
+    .participant-card:disabled {
+      cursor: not-allowed;
+    }
+
+    .participant-card__photo {
+      width: 46px;
+      height: 46px;
+      border-radius: 999px;
+      object-fit: cover;
+      border: 1px solid #e5e7eb;
+      background: #e5e7eb;
+    }
+
+    .participant-card__initials {
+      width: 46px;
+      height: 46px;
+      border-radius: 999px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: #e5e7eb;
+      font-weight: 600;
+      font-size: 0.9rem;
+      color: #4b5563;
+    }
+
+    .participant-card__name {
+      font-size: 0.9rem;
+      font-weight: 600;
+      color: #111827;
+      text-align: center;
+    }
+
+    .participant-card__tag {
+      font-size: 0.75rem;
+      color: #6b7280;
+      text-align: center;
+    }
+
+    .participant-card--selected {
+      border-color: #ef4444;
+      background: #fee2e2;
+      box-shadow: 0 8px 18px rgba(239, 68, 68, 0.3);
+      transform: translateY(-1px);
+    }
+
+    .participant-card--locked-other {
+      opacity: 0.4;
+      cursor: not-allowed;
+    }
+
+    /* Photo du destinataire dans la carte de résultat */
+
+    .receiver-photo {
+      width: 72px;
+      height: 72px;
+      border-radius: 999px;
+      object-fit: cover;
+      border: 2px solid #fecaca;
+      background: #fee2e2;
+      display: block;
+      margin: 6px auto 6px;
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <h1 id="drawTitle">Tirage en cours...</h1>
+    <div class="subtitle">
+      Choisis ta carte, laisse les lutins mélanger, et découvre à qui tu dois faire un cadeau.
+    </div>
+
+    <div id="drawError" class="section hidden">
+      <div class="card">
+        <div class="card-title">Erreur</div>
+        <div class="card-main">Tirage introuvable</div>
+        <div class="card-sub">
+          Vérifie que tu utilises bien le lien envoyé par l’organisateur.
+        </div>
+      </div>
+    </div>
+
+    <div id="drawContent" class="hidden">
+      <div class="section">
+        <div class="info-text">
+          Budget indicatif : <span id="drawBudget"></span>
+        </div>
+        <div class="small-text">
+          Dès qu’une personne a choisi sa carte sur cet appareil, seule cette carte sera
+          sélectionnable à nouveau (pour revoir son tirage).
+        </div>
+      </div>
+
+      <div id="chooserSection" class="section">
+        <label>Qui es-tu ?</label>
+        <div id="participantsGrid" class="participants-grid"></div>
+
+        <div class="small-text" style="margin-top: 6px;">
+          Clique sur ta carte pour te sélectionner, puis lance le tirage.
+        </div>
+
+        <div class="layout-row" style="margin-top: 12px;">
+          <button id="drawBtn" type="button" class="btn-primary" disabled>
+            Découvrir ma personne à gâter
+          </button>
+        </div>
+
+        <div class="info-text">
+          Quand tu as fini, clique sur “Retourner au choix” pour laisser la personne suivante jouer.
+        </div>
+      </div>
+
+      <div id="animationSection" class="section hidden">
+        <div class="card shake" id="animationCard">
+          <div class="card-title">Tirage en cours...</div>
+          <div class="card-main" id="animationName">...</div>
+          <div class="card-sub">
+            Les lutins mélangent tous les noms pour toi.
+          </div>
+          <div class="tag">
+            <span class="spinner"></span>
+            Mélange des lutins
+          </div>
+        </div>
+      </div>
+
+      <div id="resultSection" class="section hidden">
+        <div class="card" id="resultCard">
+          <div class="card-title" id="resultTitle">Ton résultat</div>
+          <img id="receiverPhoto" class="receiver-photo" alt="Photo de la personne tirée" />
+          <div class="card-main" id="receiverName"></div>
+          <div class="card-sub" id="receiverMessage"></div>
+        </div>
+        <div class="layout-row" style="margin-top: 12px;">
+          <button id="backToChooserBtn" type="button" class="btn-secondary">
+            Retourner au choix
+          </button>
+        </div>
+        <div class="small-text">
+          Ne montre surtout pas l’écran aux autres, c’est ton secret&nbsp;!
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="js/draw.js" defer></script>
+</body>
+</html>

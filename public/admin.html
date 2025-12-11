@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <title>Père Noël Secret - Administration du tirage</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <link rel="stylesheet" href="styles.css" />
+  <style>
+    /* ------- Modal de recadrage photo ------- */
+
+    .modal-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(15, 23, 42, 0.7);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 50;
+    }
+
+    .modal-card {
+      background: #ffffff;
+      border-radius: 20px;
+      padding: 18px 16px 16px;
+      width: 90%;
+      max-width: 380px;
+      box-shadow: 0 20px 35px rgba(15, 23, 42, 0.35);
+      box-sizing: border-box;
+    }
+
+    .modal-title {
+      font-size: 1rem;
+      font-weight: 600;
+      margin-bottom: 10px;
+      text-align: center;
+    }
+
+    #cropCanvas {
+      display: block;
+      margin: 0 auto 10px;
+      width: 220px;
+      height: 220px;
+      border-radius: 999px;
+      background: #e5e7eb;
+    }
+
+    #zoomRange {
+      width: 100%;
+      margin: 8px 0 4px;
+    }
+
+    .modal-actions {
+      margin-top: 10px;
+      display: flex;
+      gap: 8px;
+      justify-content: space-between;
+    }
+
+    .modal-actions button {
+      flex: 1;
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <h1>Administration du tirage</h1>
+    <div class="subtitle" id="adminSubtitle">
+      Chargement du tirage...
+    </div>
+
+    <div id="adminError" class="section hidden">
+      <div class="card">
+        <div class="card-title">Erreur</div>
+        <div class="card-main">Tirage introuvable</div>
+        <div class="card-sub">
+          Vérifie que tu utilises bien le lien administrateur reçu lors de la création.
+        </div>
+      </div>
+    </div>
+
+    <div id="adminContent" class="hidden">
+      <div class="section">
+        <h2>Détails du tirage</h2>
+        <div class="info-text">
+          Nom : <strong id="drawTitle"></strong><br />
+          Budget : <span id="drawBudget"></span>
+        </div>
+        <div class="small-text">
+          Tu peux modifier la liste des participants tant que le tirage n’est pas lancé
+          (ou après une réinitialisation).
+        </div>
+      </div>
+
+      <div class="section">
+        <h2>Participants</h2>
+        <div class="info-text">
+          Ajoute un nom par participant et, si tu veux, une photo depuis ton ordinateur.
+          Elle sera recadrée dans le rond automatiquement.
+        </div>
+
+        <table>
+          <thead>
+            <tr>
+              <th>Nom</th>
+              <th>Photo</th>
+            </tr>
+          </thead>
+          <tbody id="participantsBody">
+          </tbody>
+        </table>
+
+        <div class="section layout-row">
+          <button id="addParticipantBtn" type="button" class="btn-secondary">
+            + Ajouter une ligne
+          </button>
+          <button id="saveParticipantsBtn" type="button" class="btn-primary">
+            Enregistrer les participants
+          </button>
+        </div>
+        <div class="small-text" id="participantsHint">
+          Il faut au moins 2 participants pour lancer un tirage.
+        </div>
+      </div>
+
+      <div class="section">
+        <h2>Lancer / réinitialiser le tirage</h2>
+        <div class="info-text">
+          Une fois le tirage lancé, chaque personne aura une cible unique et ne pourra pas se tirer elle-même.
+          Tu peux réinitialiser pour effacer les attributions, tout en gardant la liste des participants.
+        </div>
+        <div class="layout-row">
+          <button id="startDrawBtn" type="button" class="btn-primary">
+            Lancer le tirage
+          </button>
+          <!-- Le bouton de réinitialisation sera ajouté dynamiquement à côté -->
+        </div>
+      </div>
+
+      <div id="publicLinkSection" class="section hidden">
+        <h2>Lien à partager</h2>
+        <label>Lien participant</label>
+        <input id="publicUrlInputAdmin" type="text" readonly />
+        <div class="small-text">
+          C’est ce lien que tu envoies à tes amis. Chacun choisira sa carte et verra sa personne à gâter.
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal de recadrage photo -->
+  <div id="photoCropModal" class="modal-overlay hidden">
+    <div class="modal-card">
+      <div class="modal-title">Ajuste la photo du participant</div>
+      <canvas id="cropCanvas" width="256" height="256"></canvas>
+
+      <label for="zoomRange">Zoom</label>
+      <input type="range" id="zoomRange" min="1" max="3" step="0.05" value="1.3" />
+
+      <div class="small-text">
+        La photo sera centrée dans le rond. Ajuste le zoom pour que le visage rentre bien.
+      </div>
+
+      <div class="modal-actions">
+        <button id="cancelCropBtn" type="button" class="btn-secondary">
+          Annuler
+        </button>
+        <button id="confirmCropBtn" type="button" class="btn-primary">
+          Valider
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <script src="js/admin.js" defer></script>
+</body>
+</html>

@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <title>Père Noël Secret - Création du tirage</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="app">
+    <h1>Père Noël Secret</h1>
+    <div class="subtitle">
+      Crée un tirage, configure les participants, puis partage le lien à tes amis.
+    </div>
+
+    <form id="createForm" class="section">
+      <label for="titleInput">Nom du tirage</label>
+      <input id="titleInput" type="text" placeholder="Ex. Noël 2025 avec les potes" required />
+
+      <div class="section" style="margin-top: 10px;">
+        <label for="budgetInput">Budget par personne (optionnel)</label>
+        <input id="budgetInput" type="number" min="0" placeholder="Ex. 20" />
+        <div class="small-text">Juste pour l’affichage, ça ne bloque rien.</div>
+      </div>
+
+      <div class="section layout-row">
+        <button type="submit" class="btn-primary">
+          Créer le tirage
+        </button>
+      </div>
+    </form>
+
+    <div id="createResult" class="section hidden">
+      <div class="card">
+        <div class="card-title">Tirage créé</div>
+        <div class="card-main" id="createdTitle"></div>
+        <div class="card-sub">
+          Garde bien le lien admin, il te permet d’ajouter les participants et de lancer le tirage.
+        </div>
+        <div class="tag">
+          <span class="tag-dot"></span>
+          Prêt à configurer les participants
+        </div>
+      </div>
+
+      <div class="section">
+        <label>Lien administrateur</label>
+        <input id="adminUrlInput" type="text" readonly />
+        <div class="small-text">C’est ton lien privé d’organisation.</div>
+      </div>
+
+      <div class="section">
+        <label>Lien à partager aux amis (sera actif une fois le tirage lancé)</label>
+        <input id="publicUrlInput" type="text" readonly />
+      </div>
+
+      <div class="section layout-row">
+        <button id="goAdminBtn" class="btn-primary">
+          Aller sur la page admin
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <script src="js/index.js" defer></script>
+</body>
+</html>
