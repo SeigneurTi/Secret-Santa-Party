@@ -24,9 +24,16 @@ document.addEventListener('DOMContentLoaded', () => {
   const cropCtx = cropCanvas.getContext('2d');
 
   let resetDrawBtn = null;
-  let cropImage = null;            // Image en cours de recadrage
+
+  // État du recadrage
+  let cropImage = null;          // Image en cours
   let cropZoom = parseFloat(zoomRange.value) || 1.3;
-  let currentPhotoInput = null;    // Champ de texte à mettre à jour après upload
+  let cropOffsetX = 0;
+  let cropOffsetY = 0;
+  let isDragging = false;
+  let lastDragX = 0;
+  let lastDragY = 0;
+  let currentPhotoInput = null;  // Champ texte à mettre à jour après upload
 
   if (!adminCode) {
     adminSubtitle.textContent = 'Code administrateur manquant dans l’URL.';
@@ -34,15 +41,22 @@ document.addEventListener('DOMContentLoaded', () => {
     return;
   }
 
+  // ---------- Gestion du modal ----------
+
   function openModal() {
+    photoCropModal.style.display = 'flex';
     photoCropModal.classList.remove('hidden');
   }
 
   function closeModal() {
+    photoCropModal.style.display = 'none';
     photoCropModal.classList.add('hidden');
     cropImage = null;
     currentPhotoInput = null;
+    isDragging = false;
   }
+
+  // ---------- Recadrage (zoom + drag) ----------
 
   function drawCroppedImage() {
     if (!cropImage) return;
@@ -56,17 +70,18 @@ document.addEventListener('DOMContentLoaded', () => {
 
     ctx.clearRect(0, 0, w, h);
 
-    // On calcule une échelle de base pour remplir le canvas
+    // Échelle de base pour remplir le canvas
     const baseScale = Math.max(w / img.width, h / img.height);
     const scale = baseScale * cropZoom;
 
     const drawW = img.width * scale;
     const drawH = img.height * scale;
 
-    const dx = (w - drawW) / 2;
-    const dy = (h - drawH) / 2;
+    // Position de l'image, centrée + offset drag
+    const dx = (w - drawW) / 2 + cropOffsetX;
+    const dy = (h - drawH) / 2 + cropOffsetY;
 
-    // On dessine dans un masque circulaire pour avoir un aperçu rond
+    // Masque circulaire
     ctx.save();
     ctx.beginPath();
     ctx.arc(w / 2, h / 2, w / 2, 0, Math.PI * 2);
@@ -86,6 +101,8 @@ document.addEventListener('DOMContentLoaded', () => {
         cropImage = img;
         currentPhotoInput = targetInput;
         cropZoom = parseFloat(zoomRange.value) || 1.3;
+        cropOffsetX = 0;
+        cropOffsetY = 0;
         drawCroppedImage();
         openModal();
       };
@@ -99,6 +116,67 @@ document.addEventListener('DOMContentLoaded', () => {
     drawCroppedImage();
   });
 
+  // Drag souris
+  cropCanvas.addEventListener('mousedown', (e) => {
+    if (!cropImage) return;
+    isDragging = true;
+    lastDragX = e.clientX;
+    lastDragY = e.clientY;
+  });
+
+  window.addEventListener('mousemove', (e) => {
+    if (!isDragging || !cropImage) return;
+    const dx = e.clientX - lastDragX;
+    const dy = e.clientY - lastDragY;
+    lastDragX = e.clientX;
+    lastDragY = e.clientY;
+
+    cropOffsetX += dx;
+    cropOffsetY += dy;
+    drawCroppedImage();
+  });
+
+  window.addEventListener('mouseup', () => {
+    isDragging = false;
+  });
+
+  // Drag tactile (mobile)
+  cropCanvas.addEventListener(
+    'touchstart',
+    (e) => {
+      if (!cropImage) return;
+      if (e.touches.length !== 1) return;
+      const t = e.touches[0];
+      isDragging = true;
+      lastDragX = t.clientX;
+      lastDragY = t.clientY;
+      e.preventDefault();
+    },
+    { passive: false }
+  );
+
+  cropCanvas.addEventListener(
+    'touchmove',
+    (e) => {
+      if (!isDragging || !cropImage) return;
+      if (e.touches.length !== 1) return;
+      const t = e.touches[0];
+      const dx = t.clientX - lastDragX;
+      const dy = t.clientY - lastDragY;
+      lastDragX = t.clientX;
+      lastDragY = t.clientY;
+      cropOffsetX += dx;
+      cropOffsetY += dy;
+      drawCroppedImage();
+      e.preventDefault();
+    },
+    { passive: false }
+  );
+
+  cropCanvas.addEventListener('touchend', () => {
+    isDragging = false;
+  });
+
   cancelCropBtn.addEventListener('click', () => {
     closeModal();
   });
@@ -109,37 +187,41 @@ document.addEventListener('DOMContentLoaded', () => {
       return;
     }
 
-    // On transforme le canvas (cercle) en image à uploader
-    cropCanvas.toBlob(async (blob) => {
-      if (!blob) {
-        alert("Impossible de générer l'image recadrée.");
-        return;
-      }
-
-      const formData = new FormData();
-      formData.append('photo', blob, 'avatar.png');
-
-      try {
-        const res = await fetch('/api/upload-photo', {
-          method: 'POST',
-          body: formData
-        });
-
-        if (!res.ok) {
-          const err = await res.json().catch(() => ({}));
-          throw new Error(err.error || 'Erreur lors de l’envoi de la photo.');
+    cropCanvas.toBlob(
+      async (blob) => {
+        if (!blob) {
+          alert("Impossible de générer l'image recadrée.");
+          return;
         }
 
-        const data = await res.json();
-        currentPhotoInput.value = data.url || '';
-      } catch (err) {
-        console.error(err);
-        alert(err.message || 'Erreur lors de l’envoi de la photo.');
-      } finally {
-        closeModal();
-      }
-    }, 'image/png');
+        const formData = new FormData();
+        formData.append('photo', blob, 'avatar.png');
+
+        try {
+          const res = await fetch('/api/upload-photo', {
+            method: 'POST',
+            body: formData
+          });
+
+          if (!res.ok) {
+            const err = await res.json().catch(() => ({}));
+            throw new Error(err.error || 'Erreur lors de l’envoi de la photo.');
+          }
+
+          const data = await res.json();
+          currentPhotoInput.value = data.url || '';
+        } catch (err) {
+          console.error(err);
+          alert(err.message || 'Erreur lors de l’envoi de la photo.');
+        } finally {
+          closeModal();
+        }
+      },
+      'image/png'
+    );
   });
+
+  // ---------- Table participants ----------
 
   function createRow(participant) {
     const tr = document.createElement('tr');
@@ -153,7 +235,7 @@ document.addEventListener('DOMContentLoaded', () => {
     nameInput.value = participant?.name || '';
     tdName.appendChild(nameInput);
 
-    // Photo (URL + fichier + mini-preview)
+    // Photo
     const tdPhoto = document.createElement('td');
 
     const photoInput = document.createElement('input');
@@ -177,7 +259,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
     preview.appendChild(previewImg);
 
-    // Quand l’URL change, on met à jour la preview
+    // MAJ preview quand URL change
     photoInput.addEventListener('input', () => {
       const url = photoInput.value.trim();
       if (url) {
@@ -187,7 +269,7 @@ document.addEventListener('DOMContentLoaded', () => {
       }
     });
 
-    // Quand on choisit un fichier, on ouvre le recadrage
+    // Ouvrir recadrage quand fichier choisi
     fileInput.addEventListener('change', () => {
       const file = fileInput.files[0];
       if (!file) return;
@@ -202,6 +284,8 @@ document.addEventListener('DOMContentLoaded', () => {
     tr.appendChild(tdPhoto);
     return tr;
   }
+
+  // ---------- Chargement / sauvegarde du tirage ----------
 
   async function loadDraw() {
     try {
